@@ -1,7 +1,19 @@
 # ================================================
-# TLS TV Manager v4.3 - PROGRESSO TOTAL
+# TLS TV Manager v4.4 - AUTO UPDATE
 # Sistema de Gerenciamento de Listas M3U/M3U8
+# Versão: 4.4
 # ================================================
+
+# ================================================
+# SISTEMA DE VERSÃO E AUTO UPDATE
+# ================================================
+
+$Script:Version = "4.4"
+$Script:RepoUrl = "https://raw.githubusercontent.com/thyagorve/tlstv/main/tlstv-manager.ps1"
+$Script:Running = $true
+$Script:CurrentChannels = $null
+$Script:TestedChannels = $null
+$Script:CurrentUrl = $null
 
 # Configurações
 $Script:Config = @{
@@ -11,11 +23,64 @@ $Script:Config = @{
     UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
-# Variáveis globais
-$Script:CurrentChannels = $null
-$Script:TestedChannels = $null
-$Script:CurrentUrl = $null
-$Script:Running = $true
+# ================================================
+# FUNÇÃO DE AUTO UPDATE
+# ================================================
+
+function Check-ForUpdates {
+    Write-ColorOutput "🔍 Verificando atualizações..." "Yellow" "🔄"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
+    
+    try {
+        # Baixar versão atual do repositório
+        $webClient = New-Object System.Net.WebClient
+        $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
+        $remoteContent = $webClient.DownloadString($Script:RepoUrl)
+        
+        # Procurar versão no conteúdo remoto
+        if ($remoteContent -match '\$Script:Version\s*=\s*"([^"]+)"') {
+            $remoteVersion = $matches[1]
+            
+            Write-ColorOutput "   Versão local: $($Script:Version)" "White"
+            Write-ColorOutput "   Versão remota: $remoteVersion" "White"
+            
+            if ($remoteVersion -gt $Script:Version) {
+                Write-ColorOutput "`n🆕 Nova versão disponível! ($remoteVersion)" "Green" "🎉"
+                Write-ColorOutput "────────────────────────────────────────" "Gray"
+                
+                $update = Read-Host "Deseja atualizar agora? (S/N)"
+                if ($update -eq "S") {
+                    Write-ColorOutput "⬇️ Baixando atualização..." "Yellow" "📥"
+                    
+                    # Salvar script atualizado
+                    $tempFile = [System.IO.Path]::GetTempFileName() + ".ps1"
+                    $remoteContent | Out-File -FilePath $tempFile -Encoding UTF8
+                    
+                    Write-ColorOutput "✅ Download concluído!" "Green" "🎯"
+                    Write-ColorOutput "🔄 Reiniciando com nova versão..." "Yellow" "🚀"
+                    
+                    # Limpar variáveis atuais
+                    Clear-AllData
+                    
+                    # Executar novo script e sair do atual
+                    & $tempFile
+                    exit
+                } else {
+                    Write-ColorOutput "⏭️ Atualização cancelada." "Yellow"
+                }
+            } else {
+                Write-ColorOutput "✅ Você já está na versão mais recente!" "Green" "🎯"
+            }
+        } else {
+            Write-ColorOutput "⚠️ Não foi possível verificar a versão remota." "Yellow"
+        }
+    }
+    catch {
+        Write-ColorOutput "❌ Erro ao verificar atualizações: $_" "Red" "💥"
+    }
+    
+    Read-Host "`nPressione Enter para continuar..."
+}
 
 # ================================================
 # FUNÇÕES PRINCIPAIS
@@ -30,8 +95,8 @@ function Write-ColorOutput {
 function Show-Banner {
     Clear-Host
     Write-ColorOutput "╔══════════════════════════════════════════╗" "Cyan"
-    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.3           ║" "Magenta"
-    Write-ColorOutput "║     Progresso em Tempo Real             ║" "Magenta"
+    Write-ColorOutput "║        ⚡ TLS TV MANAGER v$($Script:Version)           ║" "Magenta"
+    Write-ColorOutput "║     Auto Update e Progresso Total       ║" "Magenta"
     Write-ColorOutput "╚══════════════════════════════════════════╝" "Cyan"
     Write-ColorOutput ""
 }
@@ -47,12 +112,13 @@ function Show-Menu {
     Write-ColorOutput "5. 📊 Estatísticas" "White"
     Write-ColorOutput "6. ⚙️  Configurações" "White"
     Write-ColorOutput "7. 🗑️  Limpar dados" "White"
-    Write-ColorOutput "8. 🚪 Sair" "White"
+    Write-ColorOutput "8. 🔄 Verificar atualizações" "White"
+    Write-ColorOutput "9. 🚪 Sair" "White"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
 }
 
 # ================================================
-# FUNÇÃO DE PROGRESSO MELHORADA
+# FUNÇÃO DE PROGRESSO
 # ================================================
 
 function Show-Progress {
@@ -102,7 +168,6 @@ function Get-M3UListMemory {
     if ($isLocalFile) {
         Write-ColorOutput "📂 Carregando arquivo local..." "Yellow" "📁"
         
-        # Mostrar progresso do arquivo
         $fileInfo = Get-Item $Source
         $fileSize = $fileInfo.Length
         
@@ -121,7 +186,6 @@ function Get-M3UListMemory {
         }
     }
     
-    # Download com progresso
     Write-ColorOutput "📥 Baixando lista da URL..." "Yellow" "🔄"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
     
@@ -134,7 +198,6 @@ function Get-M3UListMemory {
             $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
             $webClient.Headers.Add("Connection", "keep-alive")
             
-            # Adicionar evento de progresso
             $webClient.DownloadProgressChanged += {
                 param($sender, $e)
                 $percent = $e.ProgressPercentage
@@ -170,7 +233,7 @@ function Get-M3UListMemory {
             Write-ColorOutput "   Tentativa 1 falhou..." "Yellow"
         }
         
-        # Tentativa 2: Invoke-WebRequest (mais simples)
+        # Tentativa 2: Invoke-WebRequest
         try {
             Write-ColorOutput "   Usando método alternativo..." "Yellow"
             $response = Invoke-WebRequest -Uri $Source -UserAgent $Script:Config.UserAgent -TimeoutSec 30 -UseBasicParsing
@@ -214,7 +277,6 @@ function Parse-M3UQuick {
     $total = $lines.Count
     Write-ColorOutput "   Linhas encontradas: $total" "Gray"
     
-    # Verificar formato
     $hasExtM3U = $lines | Where-Object { $_ -match "#EXTM3U" }
     if ($hasExtM3U) {
         Write-ColorOutput "   ✅ Formato M3U detectado" "Green"
@@ -222,7 +284,6 @@ function Parse-M3UQuick {
         Write-ColorOutput "   ⚠️ Pode não ser uma lista M3U padrão" "Yellow"
     }
     
-    # Processar com progresso
     $i = 0
     $count = 0
     $errors = 0
@@ -231,7 +292,6 @@ function Parse-M3UQuick {
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
         
-        # Mostrar progresso a cada 1%
         $currentProgress = [math]::Round(($i / $total) * 100)
         if ($currentProgress -ne $lastProgress) {
             $lastProgress = $currentProgress
@@ -253,7 +313,6 @@ function Parse-M3UQuick {
                 TvgLogo = ""
             }
             
-            # Extrair nome
             if ($line -match ',([^,]+)$') {
                 $channel.Name = $matches[1].Trim()
                 if ([string]::IsNullOrEmpty($channel.Name)) {
@@ -261,23 +320,19 @@ function Parse-M3UQuick {
                 }
             }
             
-            # Extrair grupo
             if ($line -match 'group-title="([^"]+)"') { 
                 $channel.Group = $matches[1].Trim()
             }
             
-            # Extrair logo
             if ($line -match 'tvg-logo="([^"]+)"') { 
                 $channel.Logo = $matches[1].Trim()
                 $channel.TvgLogo = $matches[1].Trim()
             }
             
-            # Extrair tvg-id
             if ($line -match 'tvg-id="([^"]+)"') { 
                 $channel.TvgId = $matches[1].Trim()
             }
             
-            # Extrair tvg-name
             if ($line -match 'tvg-name="([^"]+)"') { 
                 $channel.TvgName = $matches[1].Trim()
                 if ($channel.Name -eq "Desconhecido") {
@@ -285,7 +340,6 @@ function Parse-M3UQuick {
                 }
             }
             
-            # Buscar URL
             $i++
             $urlFound = $false
             while ($i -lt $total -and !$urlFound) {
@@ -320,7 +374,6 @@ function Parse-M3UQuick {
         }
     }
     
-    # Finalizar progresso
     Show-Progress -Current $total -Total $total -Label "Concluído" -Status "$count canais" -Color "Green"
     Write-Host "`n"
     
@@ -503,7 +556,7 @@ function Test-UrlsTurbo {
 }
 
 # ================================================
-# DEMAIS FUNÇÕES (MANTIDAS)
+# DEMAIS FUNÇÕES
 # ================================================
 
 function Filter-Categories {
@@ -647,7 +700,8 @@ function Exit-Script {
     Write-ColorOutput "👋 Saindo..." "Yellow" "🚪"
     Clear-AllData
     $Script:Running = $false
-    exit
+    # Sair com força total
+    [System.Environment]::Exit(0)
 }
 
 # ================================================
@@ -793,7 +847,12 @@ while ($Script:Running) {
         }
         
         "8" {
+            Check-ForUpdates
+        }
+        
+        "9" {
             Exit-Script
+            break
         }
         
         default {
@@ -803,4 +862,5 @@ while ($Script:Running) {
     }
 }
 
+# Garantir saída
 Write-ColorOutput "👋 Programa finalizado!" "Green" "✅"
