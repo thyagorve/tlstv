@@ -1,5 +1,5 @@
 # ================================================
-# TLS TV Manager v4.2 - COM SUPORTE LOCAL
+# TLS TV Manager v4.3 - PROGRESSO TOTAL
 # Sistema de Gerenciamento de Listas M3U/M3U8
 # ================================================
 
@@ -30,8 +30,8 @@ function Write-ColorOutput {
 function Show-Banner {
     Clear-Host
     Write-ColorOutput "╔══════════════════════════════════════════╗" "Cyan"
-    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.2           ║" "Magenta"
-    Write-ColorOutput "║     Suporte URL e Arquivo Local         ║" "Magenta"
+    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.3           ║" "Magenta"
+    Write-ColorOutput "║     Progresso em Tempo Real             ║" "Magenta"
     Write-ColorOutput "╚══════════════════════════════════════════╝" "Cyan"
     Write-ColorOutput ""
 }
@@ -52,7 +52,45 @@ function Show-Menu {
 }
 
 # ================================================
-# FUNÇÃO DE DOWNLOAD MELHORADA COM SUPORTE LOCAL
+# FUNÇÃO DE PROGRESSO MELHORADA
+# ================================================
+
+function Show-Progress {
+    param(
+        [int]$Current,
+        [int]$Total,
+        [string]$Label = "Processando",
+        [string]$Status = "",
+        [string]$Color = "Cyan"
+    )
+    
+    if ($Total -eq 0) { $Total = 1 }
+    $percent = [math]::Round(($Current / $Total) * 100)
+    $barLength = 40
+    $filled = [math]::Round(($percent / 100) * $barLength)
+    $bar = "█" * $filled + "░" * ($barLength - $filled)
+    
+    Write-Host "`r" -NoNewline
+    Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+    Write-Host "`r" -NoNewline
+    Write-Host "│ $bar │ $percent%  " -ForegroundColor $Color -NoNewline
+    
+    Write-Host "`r" -NoNewline
+    Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+    Write-Host "`r" -NoNewline
+    
+    $statusLine = "$Label: $Current/$Total"
+    if ($Status) { $statusLine += " | $Status" }
+    $padding = 40 - $statusLine.Length
+    if ($padding -lt 0) { $padding = 0 }
+    Write-Host "│ $statusLine$(' ' * $padding)│" -ForegroundColor White -NoNewline
+    
+    Write-Host "`r" -NoNewline
+    Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+}
+
+# ================================================
+# FUNÇÃO DE DOWNLOAD COM PROGRESSO
 # ================================================
 
 function Get-M3UListMemory {
@@ -63,9 +101,17 @@ function Get-M3UListMemory {
     
     if ($isLocalFile) {
         Write-ColorOutput "📂 Carregando arquivo local..." "Yellow" "📁"
+        
+        # Mostrar progresso do arquivo
+        $fileInfo = Get-Item $Source
+        $fileSize = $fileInfo.Length
+        
+        Write-ColorOutput "   Tamanho: $([math]::Round($fileSize/1024, 2)) KB" "Gray"
+        Write-ColorOutput "   ⏳ Lendo arquivo..." "Yellow"
+        
         try {
             $content = Get-Content -Path $Source -Raw -Encoding UTF8
-            Write-ColorOutput "✅ Arquivo carregado! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+            Write-ColorOutput "✅ Arquivo carregado!" "Green" "🎯"
             $Script:CurrentUrl = $Source
             return $content
         }
@@ -75,11 +121,12 @@ function Get-M3UListMemory {
         }
     }
     
-    # Se não for arquivo local, tentar download
+    # Download com progresso
     Write-ColorOutput "📥 Baixando lista da URL..." "Yellow" "🔄"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
     
     try {
-        # Tentativa 1: WebClient padrão
+        # Tentativa 1: WebClient com progresso
         try {
             $webClient = New-Object System.Net.WebClient
             $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
@@ -87,38 +134,45 @@ function Get-M3UListMemory {
             $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
             $webClient.Headers.Add("Connection", "keep-alive")
             
+            # Adicionar evento de progresso
+            $webClient.DownloadProgressChanged += {
+                param($sender, $e)
+                $percent = $e.ProgressPercentage
+                $barLength = 40
+                $filled = [math]::Round(($percent / 100) * $barLength)
+                $bar = "█" * $filled + "░" * ($barLength - $filled)
+                
+                $size = if ($e.TotalBytesToReceive -gt 0) {
+                    "$([math]::Round($e.BytesReceived/1024, 1))/$([math]::Round($e.TotalBytesToReceive/1024, 1)) KB"
+                } else {
+                    "$([math]::Round($e.BytesReceived/1024, 1)) KB"
+                }
+                
+                Write-Host "`r" -NoNewline
+                Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+                Write-Host "`r" -NoNewline
+                Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
+                Write-Host "`r" -NoNewline
+                Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+                Write-Host "`r" -NoNewline
+                Write-Host "│ ⬇️ Baixando: $size              │" -ForegroundColor White -NoNewline
+                Write-Host "`r" -NoNewline
+                Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            }
+            
             $content = $webClient.DownloadString($Source)
+            Write-Host "`n"
             Write-ColorOutput "✅ Download concluído! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
             $Script:CurrentUrl = $Source
             return $content
         }
         catch {
-            Write-ColorOutput "   Tentativa 1 falhou, tentando método alternativo..." "Yellow"
+            Write-ColorOutput "   Tentativa 1 falhou..." "Yellow"
         }
         
-        # Tentativa 2: HttpClient
+        # Tentativa 2: Invoke-WebRequest (mais simples)
         try {
-            $handler = New-Object System.Net.Http.HttpClientHandler
-            $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip
-            $client = New-Object System.Net.Http.HttpClient($handler)
-            $client.Timeout = [TimeSpan]::FromSeconds(30)
-            $client.DefaultRequestHeaders.Add("User-Agent", $Script:Config.UserAgent)
-            $client.DefaultRequestHeaders.Add("Accept", "*/*")
-            
-            $response = $client.GetAsync($Source).Result
-            $response.EnsureSuccessStatusCode()
-            $content = $response.Content.ReadAsStringAsync().Result
-            
-            Write-ColorOutput "✅ Download concluído! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
-            $Script:CurrentUrl = $Source
-            return $content
-        }
-        catch {
-            Write-ColorOutput "   Tentativa 2 falhou, tentando último método..." "Yellow"
-        }
-        
-        # Tentativa 3: Invoke-WebRequest
-        try {
+            Write-ColorOutput "   Usando método alternativo..." "Yellow"
             $response = Invoke-WebRequest -Uri $Source -UserAgent $Script:Config.UserAgent -TimeoutSec 30 -UseBasicParsing
             $content = $response.Content
             
@@ -139,13 +193,14 @@ function Get-M3UListMemory {
 }
 
 # ================================================
-# FUNÇÃO DE PARSING CORRIGIDA
+# FUNÇÃO DE PARSING COM PROGRESSO
 # ================================================
 
 function Parse-M3UQuick {
     param($Content)
     
-    Write-ColorOutput "🔄 Processando lista..." "Yellow" "⚙️"
+    Write-ColorOutput "🔄 Processando lista M3U..." "Yellow" "⚙️"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
     
     if ([string]::IsNullOrEmpty($Content)) {
         Write-ColorOutput "❌ Conteúdo vazio!" "Red" "💥"
@@ -156,9 +211,10 @@ function Parse-M3UQuick {
     $lines = $Content -split "`r`n|`n|`r"
     $lines = $lines | Where-Object { $_.Trim() -ne "" }
     
-    Write-ColorOutput "   Linhas encontradas: $($lines.Count)" "Gray"
+    $total = $lines.Count
+    Write-ColorOutput "   Linhas encontradas: $total" "Gray"
     
-    # Verificar se é uma lista M3U válida
+    # Verificar formato
     $hasExtM3U = $lines | Where-Object { $_ -match "#EXTM3U" }
     if ($hasExtM3U) {
         Write-ColorOutput "   ✅ Formato M3U detectado" "Green"
@@ -166,13 +222,21 @@ function Parse-M3UQuick {
         Write-ColorOutput "   ⚠️ Pode não ser uma lista M3U padrão" "Yellow"
     }
     
+    # Processar com progresso
     $i = 0
-    $total = $lines.Count
     $count = 0
     $errors = 0
+    $lastProgress = -1
     
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
+        
+        # Mostrar progresso a cada 1%
+        $currentProgress = [math]::Round(($i / $total) * 100)
+        if ($currentProgress -ne $lastProgress) {
+            $lastProgress = $currentProgress
+            Show-Progress -Current $i -Total $total -Label "Analisando" -Status "$count canais" -Color "Yellow"
+        }
         
         if ($line.StartsWith("#EXTINF:")) {
             $channel = @{
@@ -237,7 +301,6 @@ function Parse-M3UQuick {
                     $urlFound = $true
                     $count++
                 } elseif ($nextLine -match '^[a-zA-Z0-9]') {
-                    # Pode ser um caminho relativo
                     $channel.Url = $nextLine
                     $urlFound = $true
                     $count++
@@ -256,6 +319,10 @@ function Parse-M3UQuick {
             $i++
         }
     }
+    
+    # Finalizar progresso
+    Show-Progress -Current $total -Total $total -Label "Concluído" -Status "$count canais" -Color "Green"
+    Write-Host "`n"
     
     Write-ColorOutput "✅ Processados $($channels.Count) canais" "Green" "📊"
     if ($errors -gt 0) {
@@ -279,7 +346,7 @@ function Parse-M3UQuick {
 }
 
 # ================================================
-# TESTE ULTRA RÁPIDO (MANTIDO)
+# TESTE ULTRA RÁPIDO COM PROGRESSO
 # ================================================
 
 function Test-UrlsTurbo {
@@ -370,41 +437,6 @@ function Test-UrlsTurbo {
     
     $allResults = @()
     
-    function Update-ProgressBar {
-        param($current, $total, $valid, $invalid, $errors, $elapsed)
-        
-        $percent = [math]::Round(($current / $total) * 100)
-        $barLength = 40
-        $filled = [math]::Round(($percent / 100) * $barLength)
-        $bar = "█" * $filled + "░" * ($barLength - $filled)
-        
-        if ($elapsed.TotalSeconds -gt 0) {
-            $speed = [math]::Round($current / $elapsed.TotalSeconds, 1)
-        } else {
-            $speed = 0
-        }
-        
-        if ($speed -gt 0 -and $current -lt $total) {
-            $remaining = [math]::Round(($total - $current) / $speed)
-            $timeStr = "~${remaining}s"
-        } else {
-            $timeStr = "calculando..."
-        }
-        
-        Write-Host "`r" -NoNewline
-        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
-        Write-Host "`r" -NoNewline
-        Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
-        
-        Write-Host "`r" -NoNewline
-        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
-        Write-Host "`r" -NoNewline
-        Write-Host "│ ✅ $valid  ❌ $invalid  ⚠️ $errors  │ $current/$total  ⚡${speed}/s  ⏱$timeStr" -ForegroundColor White -NoNewline
-        
-        Write-Host "`r" -NoNewline
-        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
-    }
-    
     while ($jobs.Count -gt 0) {
         $job = $jobs[0]
         if ($job.State -eq "Completed") {
@@ -419,7 +451,36 @@ function Test-UrlsTurbo {
             $jobs = $jobs[1..($jobs.Count-1)]
             
             $elapsed = (Get-Date) - $startTime
-            Update-ProgressBar -current $completed -total $total -valid $validCount -invalid $invalidCount -errors $errorCount -elapsed $elapsed
+            if ($elapsed.TotalSeconds -gt 0) {
+                $speed = [math]::Round($completed / $elapsed.TotalSeconds, 1)
+            } else {
+                $speed = 0
+            }
+            
+            if ($speed -gt 0 -and $completed -lt $total) {
+                $remaining = [math]::Round(($total - $completed) / $speed)
+                $timeStr = "~${remaining}s"
+            } else {
+                $timeStr = "calculando..."
+            }
+            
+            $percent = [math]::Round(($completed / $total) * 100)
+            $barLength = 40
+            $filled = [math]::Round(($percent / 100) * $barLength)
+            $bar = "█" * $filled + "░" * ($barLength - $filled)
+            
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
+            
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "│ ✅ $validCount  ❌ $invalidCount  ⚠️ $errorCount  │ $completed/$total  ⚡${speed}/s  ⏱$timeStr" -ForegroundColor White -NoNewline
+            
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
         } else {
             Start-Sleep -Milliseconds 50
         }
@@ -468,10 +529,34 @@ function Filter-Categories {
 function Generate-ListLink {
     param($Channels, $OnlyValid = $true)
     
+    Write-ColorOutput "💾 Gerando lista..." "Yellow" "📝"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
+    
     $output = "#EXTM3U`n"
     $count = 0
+    $total = $Channels.Count
+    $i = 0
     
     foreach ($ch in $Channels) {
+        $i++
+        if ($i % 100 -eq 0 -or $i -eq $total) {
+            $percent = [math]::Round(($i / $total) * 100)
+            $barLength = 40
+            $filled = [math]::Round(($percent / 100) * $barLength)
+            $bar = "█" * $filled + "░" * ($barLength - $filled)
+            
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "│ 📝 Gerando: $i/$total canais           │" -ForegroundColor White -NoNewline
+            Write-Host "`r" -NoNewline
+            Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+        }
+        
         if ($OnlyValid -and !$ch.Valid) { continue }
         
         $output += $ch.Info + "`n"
@@ -479,10 +564,12 @@ function Generate-ListLink {
         $count++
     }
     
+    Write-Host "`n"
+    
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($output)
     $base64 = [Convert]::ToBase64String($bytes)
     
-    Write-ColorOutput "📋 Link da lista gerado!" "Green" "🔗"
+    Write-ColorOutput "📋 Lista gerada com sucesso!" "Green" "🔗"
     Write-ColorOutput "   $($count) canais" "White"
     Write-ColorOutput "   Tamanho: $([math]::Round($output.Length/1024, 2)) KB" "White"
     
@@ -556,20 +643,17 @@ function Clear-AllData {
     Write-ColorOutput "🧹 Dados limpos com sucesso!" "Green" "✅"
 }
 
-# ================================================
-# INTERFACE PRINCIPAL - CORRIGIDA
-# ================================================
-
-# Função para sair
 function Exit-Script {
     Write-ColorOutput "👋 Saindo..." "Yellow" "🚪"
     Clear-AllData
     $Script:Running = $false
-    # Forçar saída
     exit
 }
 
-# Loop principal com verificação de Running
+# ================================================
+# INTERFACE PRINCIPAL
+# ================================================
+
 while ($Script:Running) {
     Show-Menu
     
@@ -719,5 +803,4 @@ while ($Script:Running) {
     }
 }
 
-# Garantir que saiu
 Write-ColorOutput "👋 Programa finalizado!" "Green" "✅"
