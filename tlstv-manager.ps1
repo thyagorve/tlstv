@@ -15,6 +15,7 @@ $Script:Config = @{
 $Script:CurrentChannels = $null
 $Script:TestedChannels = $null
 $Script:CurrentUrl = $null
+$Script:Running = $true
 
 # ================================================
 # FUNÇÕES PRINCIPAIS
@@ -556,10 +557,20 @@ function Clear-AllData {
 }
 
 # ================================================
-# INTERFACE PRINCIPAL
+# INTERFACE PRINCIPAL - CORRIGIDA
 # ================================================
 
-do {
+# Função para sair
+function Exit-Script {
+    Write-ColorOutput "👋 Saindo..." "Yellow" "🚪"
+    Clear-AllData
+    $Script:Running = $false
+    # Forçar saída
+    exit
+}
+
+# Loop principal com verificação de Running
+while ($Script:Running) {
     Show-Menu
     
     if ($Script:CurrentChannels) {
@@ -698,9 +709,7 @@ do {
         }
         
         "8" {
-            Write-ColorOutput "👋 Saindo..." "Yellow" "🚪"
-            Clear-AllData
-            break
+            Exit-Script
         }
         
         default {
@@ -708,4 +717,7 @@ do {
             Read-Host "`nPressione Enter para continuar..."
         }
     }
-} while ($true)
+}
+
+# Garantir que saiu
+Write-ColorOutput "👋 Programa finalizado!" "Green" "✅"
