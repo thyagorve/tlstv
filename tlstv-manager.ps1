@@ -1,13 +1,14 @@
 # ================================================
-# TLS TV Manager v4.0 - ULTRA FAST
-# Sistema de Gerenciamento de Listas M3U
+# TLS TV Manager v4.1 - CORRIGIDO
+# Sistema de Gerenciamento de Listas M3U/M3U8
 # ================================================
 
 # Configurações
 $Script:Config = @{
     Timeout = 2
-    MaxParallel = 200  # Aumentado para mais velocidade
-    TestMethod = "HEAD"  # HEAD é mais rápido que GET
+    MaxParallel = 200
+    TestMethod = "HEAD"
+    UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 # Variáveis globais
@@ -28,7 +29,7 @@ function Write-ColorOutput {
 function Show-Banner {
     Clear-Host
     Write-ColorOutput "╔══════════════════════════════════════════╗" "Cyan"
-    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.0           ║" "Magenta"
+    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.1           ║" "Magenta"
     Write-ColorOutput "║          Modo Ultra Rápido              ║" "Magenta"
     Write-ColorOutput "╚══════════════════════════════════════════╝" "Cyan"
     Write-ColorOutput ""
@@ -49,68 +50,173 @@ function Show-Menu {
     Write-ColorOutput "────────────────────────────────────────" "Gray"
 }
 
+# ================================================
+# FUNÇÃO DE DOWNLOAD MELHORADA
+# ================================================
+
 function Get-M3UListMemory {
     param($Url)
     
     Write-ColorOutput "📥 Baixando lista..." "Yellow" "🔄"
     try {
+        # Configurar WebClient com headers corretos
         $webClient = New-Object System.Net.WebClient
-        $webClient.Headers.Add("User-Agent", "Mozilla/5.0")
+        $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
         $webClient.Headers.Add("Accept", "*/*")
         $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
+        $webClient.Headers.Add("Connection", "keep-alive")
+        
+        # Baixar conteúdo
         $content = $webClient.DownloadString($Url)
+        
+        # Verificar se veio algo
+        if ([string]::IsNullOrEmpty($content)) {
+            Write-ColorOutput "❌ Lista vazia!" "Red" "💥"
+            return $null
+        }
         
         $Script:CurrentUrl = $Url
         Write-ColorOutput "✅ Lista baixada! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+        
+        # Salvar debug (opcional)
+        # $content | Out-File -FilePath "$env:TEMP\debug.m3u" -Encoding UTF8
+        
         return $content
     }
     catch {
         Write-ColorOutput "❌ Erro ao baixar: $_" "Red" "💥"
+        Write-ColorOutput "   Verifique a URL e sua conexão" "Yellow"
         return $null
     }
 }
+
+# ================================================
+# FUNÇÃO DE PARSING CORRIGIDA PARA M3U8
+# ================================================
 
 function Parse-M3UQuick {
     param($Content)
     
     Write-ColorOutput "🔄 Processando lista..." "Yellow" "⚙️"
+    
     $channels = @()
-    $lines = $Content -split "`r`n|`n"
-    $total = $lines.Count
+    
+    # Tentar diferentes formas de split
+    $lines = $Content -split "`r`n|`n|`r"
+    
+    # Remover linhas vazias
+    $lines = $lines | Where-Object { $_.Trim() -ne "" }
+    
+    Write-ColorOutput "   Linhas encontradas: $($lines.Count)" "Gray"
+    
     $i = 0
+    $total = $lines.Count
+    $count = 0
     
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
+        
+        # Verificar se é uma linha de informação
         if ($line.StartsWith("#EXTINF:")) {
             $channel = @{
                 Info = $line
                 Url = ""
-                Name = ""
+                Name = "Desconhecido"
                 Group = "Sem grupo"
                 Logo = ""
                 Status = "⏳"
                 ResponseTime = 0
                 Valid = $false
+                TvgId = ""
+                TvgName = ""
             }
             
-            if ($line -match ',(.+)$') { $channel.Name = $matches[1].Trim() }
-            if ($line -match 'group-title="([^"]+)"') { $channel.Group = $matches[1] }
-            if ($line -match 'tvg-logo="([^"]+)"') { $channel.Logo = $matches[1] }
+            # Extrair nome (último após vírgula)
+            if ($line -match ',([^,]+)$') {
+                $channel.Name = $matches[1].Trim()
+                if ([string]::IsNullOrEmpty($channel.Name)) {
+                    $channel.Name = "Canal $count"
+                }
+            }
             
-            if ($i + 1 -lt $total) {
-                $nextLine = $lines[$i + 1].Trim()
+            # Extrair grupo
+            if ($line -match 'group-title="([^"]+)"') { 
+                $channel.Group = $matches[1].Trim()
+            }
+            
+            # Extrair logo
+            if ($line -match 'tvg-logo="([^"]+)"') { 
+                $channel.Logo = $matches[1].Trim()
+            }
+            
+            # Extrair tvg-id
+            if ($line -match 'tvg-id="([^"]+)"') { 
+                $channel.TvgId = $matches[1].Trim()
+            }
+            
+            # Extrair tvg-name
+            if ($line -match 'tvg-name="([^"]+)"') { 
+                $channel.TvgName = $matches[1].Trim()
+            }
+            
+            # Buscar URL (próximas linhas até encontrar uma que não comece com #)
+            $i++
+            $urlFound = $false
+            while ($i -lt $total -and !$urlFound) {
+                $nextLine = $lines[$i].Trim()
+                
+                # Se começar com #, é outra tag, pular
+                if ($nextLine.StartsWith("#")) {
+                    $i++
+                    continue
+                }
+                
+                # Se não começar com #, é a URL
+                if ($nextLine -match '^https?://' -or $nextLine -match '^rtmp://' -or $nextLine -match '^http://') {
+                    $channel.Url = $nextLine
+                    $urlFound = $true
+                    $count++
+                } else {
+                    # Pode ser um link relativo ou algo diferente
+                    $channel.Url = $nextLine
+                    $urlFound = $true
+                    $count++
+                }
+                $i++
+            }
+            
+            # Se não encontrou URL, tentar a próxima linha que não seja #EXT
+            if (!$urlFound) {
+                $nextLine = $lines[$i].Trim()
                 if ($nextLine -and !$nextLine.StartsWith("#")) {
                     $channel.Url = $nextLine
+                    $urlFound = $true
+                    $count++
                     $i++
                 }
             }
             
-            $channels += $channel
+            # Adicionar canal se tiver URL
+            if ($channel.Url) {
+                $channels += $channel
+            }
+            
+        } else {
+            $i++
         }
-        $i++
     }
     
     Write-ColorOutput "✅ Processados $($channels.Count) canais" "Green" "📊"
+    
+    if ($channels.Count -eq 0) {
+        Write-ColorOutput "⚠️ Nenhum canal encontrado! Verifique o formato da lista." "Yellow" "⚠️"
+        Write-ColorOutput "   As primeiras linhas do arquivo:" "Gray"
+        $firstLines = $lines | Select-Object -First 10
+        foreach ($line in $firstLines) {
+            Write-ColorOutput "   $($line.Substring(0, [math]::Min(50, $line.Length)))..." "Gray"
+        }
+    }
+    
     return $channels
 }
 
@@ -120,6 +226,11 @@ function Parse-M3UQuick {
 
 function Test-UrlsTurbo {
     param($Channels)
+    
+    if ($Channels.Count -eq 0) {
+        Write-ColorOutput "❌ Nenhum canal para testar!" "Red" "⚠️"
+        return $Channels
+    }
     
     Write-ColorOutput "⚡ Iniciando teste TURBO de $($Channels.Count) links..." "Yellow" "🚀"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
@@ -132,11 +243,9 @@ function Test-UrlsTurbo {
     $errorCount = 0
     $startTime = Get-Date
     
-    # Aumentar batch para mais velocidade
     $batchSize = $Script:Config.MaxParallel
     $batches = [math]::Ceiling($total / $batchSize)
     
-    # Criar lista de jobs
     $jobs = @()
     
     for ($b = 0; $b -lt $batches; $b++) {
@@ -156,8 +265,7 @@ function Test-UrlsTurbo {
                 $result.ResponseTime = 9999
                 
                 try {
-                    if ($url -match '^https?://') {
-                        # Usar método HEAD para mais velocidade
+                    if ($url -match '^https?://' -or $url -match '^rtmp://') {
                         $request = [System.Net.WebRequest]::Create($url)
                         $request.Method = "HEAD"
                         $request.Timeout = $timeout * 1000
@@ -184,6 +292,7 @@ function Test-UrlsTurbo {
                         $response.Close()
                     } else {
                         $result.Status = "🚫"
+                        $result.Error = "URL inválida"
                     }
                 }
                 catch {
@@ -201,11 +310,9 @@ function Test-UrlsTurbo {
         $jobs += $job
     }
     
-    # Processar resultados em tempo real com barra TOP
+    # Processar resultados
     $allResults = @()
-    $completedJobs = 0
     
-    # Criar barra de progresso melhorada
     function Update-ProgressBar {
         param($current, $total, $valid, $invalid, $errors, $elapsed)
         
@@ -214,14 +321,12 @@ function Test-UrlsTurbo {
         $filled = [math]::Round(($percent / 100) * $barLength)
         $bar = "█" * $filled + "░" * ($barLength - $filled)
         
-        # Calcular velocidade
         if ($elapsed.TotalSeconds -gt 0) {
             $speed = [math]::Round($current / $elapsed.TotalSeconds, 1)
         } else {
             $speed = 0
         }
         
-        # Tempo estimado
         if ($speed -gt 0 -and $current -lt $total) {
             $remaining = [math]::Round(($total - $current) / $speed)
             $timeStr = "~${remaining}s"
@@ -232,11 +337,8 @@ function Test-UrlsTurbo {
         Write-Host "`r" -NoNewline
         Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
         Write-Host "`r" -NoNewline
-        
-        # Linha 1: Barra
         Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
         
-        # Linha 2: Stats
         Write-Host "`r" -NoNewline
         Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
         Write-Host "`r" -NoNewline
@@ -246,8 +348,6 @@ function Test-UrlsTurbo {
         Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     }
     
-    # Aguardar jobs e mostrar progresso
-    $allResults = @()
     $jobIndex = 0
     
     while ($jobs.Count -gt 0) {
@@ -287,7 +387,7 @@ function Test-UrlsTurbo {
 }
 
 # ================================================
-# DEMAIS FUNÇÕES (MANTIDAS)
+# DEMAIS FUNÇÕES
 # ================================================
 
 function Filter-Categories {
@@ -351,7 +451,6 @@ function Show-DetailedStats {
     $total = $Channels.Count
     $valid = ($Channels | Where-Object { $_.Valid }).Count
     $invalid = $total - $valid
-    $pendentes = ($Channels | Where-Object { $_.Status -eq "⏳" }).Count
     
     Write-ColorOutput "📈 Resumo geral:" "Yellow"
     Write-ColorOutput "  Total: $total" "White"
@@ -429,21 +528,26 @@ do {
         "1" {
             Write-ColorOutput "📥 INSERIR URL DA LISTA" "Yellow"
             Write-ColorOutput "────────────────────────────────────────" "Gray"
-            $url = Read-Host "URL (ex: https://exemplo.com/lista.m3u)"
+            Write-ColorOutput "   Exemplo: http://auth.urltech.gy/get.php?username=..." "Gray"
+            $url = Read-Host "`nURL da lista"
             
             if ($url) {
                 $content = Get-M3UListMemory -Url $url
                 if ($content) {
                     $Script:CurrentChannels = Parse-M3UQuick -Content $content
                     $Script:TestedChannels = $null
-                    Write-ColorOutput "✅ Lista pronta para uso!" "Green" "🎉"
+                    if ($Script:CurrentChannels.Count -gt 0) {
+                        Write-ColorOutput "✅ Lista pronta para uso!" "Green" "🎉"
+                    } else {
+                        Write-ColorOutput "⚠️ Nenhum canal encontrado. Tente outra URL." "Yellow" "⚠️"
+                    }
                 }
             }
             Read-Host "`nPressione Enter para continuar..."
         }
         
         "2" {
-            if (!$Script:CurrentChannels) {
+            if (!$Script:CurrentChannels -or $Script:CurrentChannels.Count -eq 0) {
                 Write-ColorOutput "❌ Carregue uma lista primeiro (opção 1)!" "Red" "⚠️"
             } else {
                 $Script:TestedChannels = Test-UrlsTurbo -Channels $Script:CurrentChannels
@@ -452,19 +556,23 @@ do {
         }
         
         "3" {
-            if (!$Script:CurrentChannels) {
+            if (!$Script:CurrentChannels -or $Script:CurrentChannels.Count -eq 0) {
                 Write-ColorOutput "❌ Carregue uma lista primeiro (opção 1)!" "Red" "⚠️"
             } else {
                 $groups = $Script:CurrentChannels | Where-Object { $_.Group } | Group-Object Group
-                Write-ColorOutput "📂 CATEGORIAS DISPONÍVEIS" "Yellow"
-                Write-ColorOutput "────────────────────────────────────────" "Gray"
-                $groups | ForEach-Object { 
-                    $count = $_.Count
-                    $valid = ($_.Group | Where-Object { $_.Valid }).Count
-                    $status = if ($valid -gt 0) { "✅ $valid válidos" } else { "⏳ não testados" }
-                    Write-ColorOutput "  $($_.Name) - $count canais ($status)" "White"
+                if ($groups.Count -gt 0) {
+                    Write-ColorOutput "📂 CATEGORIAS DISPONÍVEIS" "Yellow"
+                    Write-ColorOutput "────────────────────────────────────────" "Gray"
+                    $groups | ForEach-Object { 
+                        $count = $_.Count
+                        $valid = ($_.Group | Where-Object { $_.Valid }).Count
+                        $status = if ($valid -gt 0) { "✅ $valid válidos" } else { "⏳ não testados" }
+                        Write-ColorOutput "  $($_.Name) - $count canais ($status)" "White"
+                    }
+                    Write-ColorOutput ""
+                } else {
+                    Write-ColorOutput "⚠️ Nenhuma categoria encontrada" "Yellow"
                 }
-                Write-ColorOutput ""
                 
                 $filter = Read-Host "Digite o filtro (ou 'todos' para todos)"
                 
@@ -476,7 +584,7 @@ do {
         }
         
         "4" {
-            if (!$Script:CurrentChannels) {
+            if (!$Script:CurrentChannels -or $Script:CurrentChannels.Count -eq 0) {
                 Write-ColorOutput "❌ Carregue uma lista primeiro (opção 1)!" "Red" "⚠️"
             } else {
                 Write-ColorOutput "💾 GERAR LINK DA LISTA" "Yellow"
@@ -492,7 +600,7 @@ do {
         }
         
         "5" {
-            if (!$Script:CurrentChannels) {
+            if (!$Script:CurrentChannels -or $Script:CurrentChannels.Count -eq 0) {
                 Write-ColorOutput "❌ Carregue uma lista primeiro (opção 1)!" "Red" "⚠️"
             } else {
                 $channelsToShow = if ($Script:TestedChannels) { $Script:TestedChannels } else { $Script:CurrentChannels }
