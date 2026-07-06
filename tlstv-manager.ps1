@@ -1,30 +1,26 @@
 # ================================================
-# M3U Turbo Manager - Sistema All-in-One
-# Versão: 3.0 - Zero Arquivos Locais
+# TLS TV Manager v4.0 - ULTRA FAST
+# Sistema de Gerenciamento de Listas M3U
 # ================================================
 
 # Configurações
 $Script:Config = @{
-    Timeout = 3
-    MaxParallel = 100
+    Timeout = 2
+    MaxParallel = 200  # Aumentado para mais velocidade
+    TestMethod = "HEAD"  # HEAD é mais rápido que GET
 }
 
 # Variáveis globais
 $Script:CurrentChannels = $null
 $Script:TestedChannels = $null
 $Script:CurrentUrl = $null
-$Script:TempData = @{}
 
 # ================================================
 # FUNÇÕES PRINCIPAIS
 # ================================================
 
 function Write-ColorOutput {
-    param(
-        [string]$Message,
-        [string]$Color = "White",
-        [string]$Emoji = ""
-    )
+    param([string]$Message, [string]$Color = "White", [string]$Emoji = "")
     if ($Emoji) { $Message = "$Emoji $Message" }
     Write-Host $Message -ForegroundColor $Color
 }
@@ -32,8 +28,8 @@ function Write-ColorOutput {
 function Show-Banner {
     Clear-Host
     Write-ColorOutput "╔══════════════════════════════════════════╗" "Cyan"
-    Write-ColorOutput "║        🚀 M3U TURBO MANAGER v3.0      ║" "Magenta"
-    Write-ColorOutput "║     Sistema All-in-One sem arquivos     ║" "Magenta"
+    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.0           ║" "Magenta"
+    Write-ColorOutput "║          Modo Ultra Rápido              ║" "Magenta"
     Write-ColorOutput "╚══════════════════════════════════════════╝" "Cyan"
     Write-ColorOutput ""
 }
@@ -42,18 +38,17 @@ function Show-Menu {
     Show-Banner
     Write-ColorOutput "📋 MENU PRINCIPAL" "Yellow"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
-    Write-ColorOutput "1. 📥 Carregar lista M3U/M3U8 (URL)" "White"
-    Write-ColorOutput "2. ⚡ Testar todos os links (paralelo)" "White"
+    Write-ColorOutput "1. 📥 Carregar lista (URL)" "White"
+    Write-ColorOutput "2. ⚡ Testar links (MODO TURBO)" "White"
     Write-ColorOutput "3. 🔍 Filtrar por categoria" "White"
-    Write-ColorOutput "4. 💾 Salvar lista (gerar novo link)" "White"
-    Write-ColorOutput "5. 📊 Estatísticas da lista" "White"
+    Write-ColorOutput "4. 💾 Salvar lista" "White"
+    Write-ColorOutput "5. 📊 Estatísticas" "White"
     Write-ColorOutput "6. ⚙️  Configurações" "White"
     Write-ColorOutput "7. 🗑️  Limpar dados" "White"
     Write-ColorOutput "8. 🚪 Sair" "White"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
 }
 
-# Função para baixar lista M3U (em memória)
 function Get-M3UListMemory {
     param($Url)
     
@@ -62,6 +57,7 @@ function Get-M3UListMemory {
         $webClient = New-Object System.Net.WebClient
         $webClient.Headers.Add("User-Agent", "Mozilla/5.0")
         $webClient.Headers.Add("Accept", "*/*")
+        $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
         $content = $webClient.DownloadString($Url)
         
         $Script:CurrentUrl = $Url
@@ -74,7 +70,6 @@ function Get-M3UListMemory {
     }
 }
 
-# Função para processar M3U (otimizada)
 function Parse-M3UQuick {
     param($Content)
     
@@ -82,8 +77,9 @@ function Parse-M3UQuick {
     $channels = @()
     $lines = $Content -split "`r`n|`n"
     $total = $lines.Count
+    $i = 0
     
-    for ($i = 0; $i -lt $total; $i++) {
+    while ($i -lt $total) {
         $line = $lines[$i].Trim()
         if ($line.StartsWith("#EXTINF:")) {
             $channel = @{
@@ -92,22 +88,15 @@ function Parse-M3UQuick {
                 Name = ""
                 Group = "Sem grupo"
                 Logo = ""
-                Status = "Pendente"
+                Status = "⏳"
                 ResponseTime = 0
+                Valid = $false
             }
             
-            # Extrair nome
             if ($line -match ',(.+)$') { $channel.Name = $matches[1].Trim() }
-            
-            # Extrair grupo
-            if ($line -match 'group-title="([^"]+)"') { 
-                $channel.Group = $matches[1] 
-            }
-            
-            # Extrair logo
+            if ($line -match 'group-title="([^"]+)"') { $channel.Group = $matches[1] }
             if ($line -match 'tvg-logo="([^"]+)"') { $channel.Logo = $matches[1] }
             
-            # Buscar URL (próxima linha)
             if ($i + 1 -lt $total) {
                 $nextLine = $lines[$i + 1].Trim()
                 if ($nextLine -and !$nextLine.StartsWith("#")) {
@@ -118,39 +107,43 @@ function Parse-M3UQuick {
             
             $channels += $channel
         }
+        $i++
     }
     
     Write-ColorOutput "✅ Processados $($channels.Count) canais" "Green" "📊"
     return $channels
 }
 
-# Função de teste ultra-rápido
+# ================================================
+# TESTE ULTRA RÁPIDO - OTIMIZADO
+# ================================================
+
 function Test-UrlsTurbo {
     param($Channels)
     
-    Write-ColorOutput "⚡ Iniciando teste turbo de $($Channels.Count) links..." "Yellow" "🚀"
+    Write-ColorOutput "⚡ Iniciando teste TURBO de $($Channels.Count) links..." "Yellow" "🚀"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
     
     $results = @()
     $total = $Channels.Count
     $completed = 0
     $validCount = 0
     $invalidCount = 0
+    $errorCount = 0
+    $startTime = Get-Date
     
-    # Dividir em batches
+    # Aumentar batch para mais velocidade
     $batchSize = $Script:Config.MaxParallel
     $batches = [math]::Ceiling($total / $batchSize)
     
-    $progressBar = @{
-        Width = 50
-        Current = 0
-    }
+    # Criar lista de jobs
+    $jobs = @()
     
     for ($b = 0; $b -lt $batches; $b++) {
         $start = $b * $batchSize
         $end = [math]::Min($start + $batchSize - 1, $total - 1)
         $batch = $Channels[$start..$end]
         
-        # Testar batch em paralelo
         $job = Start-Job -ScriptBlock {
             param($batchChannels, $timeout)
             $localResults = @()
@@ -158,37 +151,44 @@ function Test-UrlsTurbo {
             foreach ($ch in $batchChannels) {
                 $result = $ch.Clone()
                 $url = $ch.Url
+                $result.Valid = $false
+                $result.Status = "❌"
+                $result.ResponseTime = 9999
                 
                 try {
                     if ($url -match '^https?://') {
+                        # Usar método HEAD para mais velocidade
                         $request = [System.Net.WebRequest]::Create($url)
                         $request.Method = "HEAD"
                         $request.Timeout = $timeout * 1000
                         $request.UserAgent = "Mozilla/5.0"
                         $request.AllowAutoRedirect = $false
+                        $request.KeepAlive = $false
                         
                         $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
                         $response = $request.GetResponse()
                         $stopwatch.Stop()
                         
                         if ($response.StatusCode -eq 200) {
-                            $result.Status = "OK"
+                            $result.Valid = $true
+                            $result.Status = "✅"
                             $result.StatusCode = 200
                             $result.ResponseTime = $stopwatch.ElapsedMilliseconds
                             $result.ContentLength = $response.ContentLength
                         } else {
-                            $result.Status = "HTTP $($response.StatusCode)"
+                            $result.Status = "⚠️"
+                            $result.StatusCode = $response.StatusCode
                             $result.ResponseTime = $stopwatch.ElapsedMilliseconds
                         }
                         
                         $response.Close()
                     } else {
-                        $result.Status = "URL inválida"
+                        $result.Status = "🚫"
                     }
                 }
                 catch {
-                    $result.Status = "Falhou"
-                    $result.Error = $_.Exception.Message.Substring(0, 50)
+                    $result.Status = "❌"
+                    $result.Error = $_.Exception.Message.Substring(0, 30)
                     $result.ResponseTime = -1
                 }
                 
@@ -198,31 +198,98 @@ function Test-UrlsTurbo {
             return $localResults
         } -ArgumentList $batch, $Script:Config.Timeout
         
-        # Aguardar e processar resultados
-        $batchResults = Receive-Job -Job $job -Wait
-        $results += $batchResults
-        Remove-Job -Job $job
-        
-        # Atualizar progresso
-        $completed += $batchResults.Count
-        $validCount += ($batchResults | Where-Object { $_.Status -eq "OK" }).Count
-        $invalidCount = $completed - $validCount
-        
-        $percent = [math]::Round(($completed / $total) * 100)
-        $barLength = [math]::Round(($percent / 100) * 50)
-        $bar = "█" * $barLength + "░" * (50 - $barLength)
-        
-        Write-Host "`r✅ Progresso: [$bar] $percent% ($completed/$total) | Válidos: $validCount | Inválidos: $invalidCount" -ForegroundColor Cyan -NoNewline
+        $jobs += $job
     }
     
-    Write-Host "`n"
-    Write-ColorOutput "✅ Teste concluído!" "Green" "🎯"
-    Write-ColorOutput "   Válidos: $validCount | Inválidos: $invalidCount" "White"
+    # Processar resultados em tempo real com barra TOP
+    $allResults = @()
+    $completedJobs = 0
     
-    return $results
+    # Criar barra de progresso melhorada
+    function Update-ProgressBar {
+        param($current, $total, $valid, $invalid, $errors, $elapsed)
+        
+        $percent = [math]::Round(($current / $total) * 100)
+        $barLength = 40
+        $filled = [math]::Round(($percent / 100) * $barLength)
+        $bar = "█" * $filled + "░" * ($barLength - $filled)
+        
+        # Calcular velocidade
+        if ($elapsed.TotalSeconds -gt 0) {
+            $speed = [math]::Round($current / $elapsed.TotalSeconds, 1)
+        } else {
+            $speed = 0
+        }
+        
+        # Tempo estimado
+        if ($speed -gt 0 -and $current -lt $total) {
+            $remaining = [math]::Round(($total - $current) / $speed)
+            $timeStr = "~${remaining}s"
+        } else {
+            $timeStr = "calculando..."
+        }
+        
+        Write-Host "`r" -NoNewline
+        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+        Write-Host "`r" -NoNewline
+        
+        # Linha 1: Barra
+        Write-Host "│ $bar │ $percent%  " -ForegroundColor Cyan -NoNewline
+        
+        # Linha 2: Stats
+        Write-Host "`r" -NoNewline
+        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+        Write-Host "`r" -NoNewline
+        Write-Host "│ ✅ $valid  ❌ $invalid  ⚠️ $errors  │ $current/$total  ⚡${speed}/s  ⏱$timeStr" -ForegroundColor White -NoNewline
+        
+        Write-Host "`r" -NoNewline
+        Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+    }
+    
+    # Aguardar jobs e mostrar progresso
+    $allResults = @()
+    $jobIndex = 0
+    
+    while ($jobs.Count -gt 0) {
+        $job = $jobs[0]
+        if ($job.State -eq "Completed") {
+            $batchResults = Receive-Job -Job $job
+            $allResults += $batchResults
+            $completed += $batchResults.Count
+            $validCount += ($batchResults | Where-Object { $_.Valid }).Count
+            $invalidCount += ($batchResults | Where-Object { !$_.Valid -and $_.Status -ne "❌" }).Count
+            $errorCount += ($batchResults | Where-Object { $_.Status -eq "❌" }).Count
+            
+            Remove-Job -Job $job
+            $jobs = $jobs[1..($jobs.Count-1)]
+            
+            $elapsed = (Get-Date) - $startTime
+            Update-ProgressBar -current $completed -total $total -valid $validCount -invalid $invalidCount -errors $errorCount -elapsed $elapsed
+        } else {
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    
+    Write-Host "`r├────────────────────────────────────────┤" -ForegroundColor Gray
+    Write-Host "│ ✅ FINALIZADO!                        │" -ForegroundColor Green
+    Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray
+    
+    Write-Host "`n"
+    Write-ColorOutput "📊 RESULTADO FINAL" "Yellow"
+    Write-ColorOutput "────────────────────────────────────────" "Gray"
+    Write-ColorOutput "✅ Válidos: $validCount" "Green"
+    Write-ColorOutput "❌ Inválidos: $invalidCount" "Red"
+    Write-ColorOutput "⚠️  Erros: $errorCount" "Yellow"
+    Write-ColorOutput "⏱  Tempo total: $([math]::Round(((Get-Date) - $startTime).TotalSeconds, 1))s" "Cyan"
+    Write-ColorOutput "⚡ Velocidade média: $([math]::Round($total / ((Get-Date) - $startTime).TotalSeconds, 1)) links/s" "Cyan"
+    
+    return $allResults
 }
 
-# Função para filtrar por categoria
+# ================================================
+# DEMAIS FUNÇÕES (MANTIDAS)
+# ================================================
+
 function Filter-Categories {
     param($Channels, $Filter)
     
@@ -243,7 +310,6 @@ function Filter-Categories {
     return $filtered
 }
 
-# Função para gerar link da lista (simulada)
 function Generate-ListLink {
     param($Channels, $OnlyValid = $true)
     
@@ -251,25 +317,20 @@ function Generate-ListLink {
     $count = 0
     
     foreach ($ch in $Channels) {
-        if ($OnlyValid -and $ch.Status -ne "OK") { continue }
+        if ($OnlyValid -and !$ch.Valid) { continue }
         
         $output += $ch.Info + "`n"
         $output += $ch.Url + "`n"
         $count++
     }
     
-    # Codificar em Base64 para simular um link
     $bytes = [System.Text.Encoding]::UTF8.GetBytes($output)
     $base64 = [Convert]::ToBase64String($bytes)
-    
-    # Simular link (na vida real, você subiria para um serviço)
-    $link = "data:application/x-mpegURL;base64," + $base64.Substring(0, [math]::Min(100, $base64.Length)) + "..."
     
     Write-ColorOutput "📋 Link da lista gerado!" "Green" "🔗"
     Write-ColorOutput "   $($count) canais" "White"
     Write-ColorOutput "   Tamanho: $([math]::Round($output.Length/1024, 2)) KB" "White"
     
-    # Copiar para clipboard se possível
     try {
         $base64 | Set-Clipboard
         Write-ColorOutput "   ✅ Código copiado para a área de transferência!" "Green" "📋"
@@ -277,10 +338,9 @@ function Generate-ListLink {
         Write-ColorOutput "   ⚠️ Não foi possível copiar para clipboard" "Yellow"
     }
     
-    return $link
+    return $base64
 }
 
-# Função para mostrar estatísticas detalhadas
 function Show-DetailedStats {
     param($Channels)
     
@@ -289,58 +349,59 @@ function Show-DetailedStats {
     Write-ColorOutput "═══════════════════════════════════════" "Gray"
     
     $total = $Channels.Count
-    $valid = ($Channels | Where-Object { $_.Status -eq "OK" }).Count
+    $valid = ($Channels | Where-Object { $_.Valid }).Count
     $invalid = $total - $valid
-    $pendentes = ($Channels | Where-Object { $_.Status -eq "Pendente" }).Count
+    $pendentes = ($Channels | Where-Object { $_.Status -eq "⏳" }).Count
     
     Write-ColorOutput "📈 Resumo geral:" "Yellow"
     Write-ColorOutput "  Total: $total" "White"
     Write-ColorOutput "  ✅ Válidos: $valid ($([math]::Round(($valid/$total)*100, 1))%)" "Green"
     Write-ColorOutput "  ❌ Inválidos: $invalid ($([math]::Round(($invalid/$total)*100, 1))%)" "Red"
-    Write-ColorOutput "  ⏳ Pendentes: $pendentes" "Yellow"
+    
+    # Top 10 mais rápidos
+    $topFast = $Channels | Where-Object { $_.Valid -and $_.ResponseTime -gt 0 } | Sort-Object ResponseTime | Select-Object -First 10
+    if ($topFast.Count -gt 0) {
+        Write-ColorOutput "`n⚡ TOP 10 MAIS RÁPIDOS:" "Yellow"
+        Write-ColorOutput "────────────────────────────────────────" "Gray"
+        $i = 1
+        foreach ($ch in $topFast) {
+            $name = if ($ch.Name.Length -gt 35) { $ch.Name.Substring(0, 35) + "..." } else { $ch.Name }
+            $ping = "$($ch.ResponseTime)ms"
+            Write-ColorOutput "  $i. $name" "White"
+            Write-ColorOutput "     ⚡ $ping │ $($ch.Group)" "Gray"
+            $i++
+        }
+    }
     
     # Grupos
     $groups = $Channels | Where-Object { $_.Group } | Group-Object Group | Sort-Object Count -Descending
     if ($groups.Count -gt 0) {
-        Write-ColorOutput "`n📂 Categorias:" "Yellow"
+        Write-ColorOutput "`n📂 CATEGORIAS:" "Yellow"
+        Write-ColorOutput "────────────────────────────────────────" "Gray"
         foreach ($group in $groups | Select-Object -First 10) {
-            $groupValid = ($group.Group | Where-Object { $_.Status -eq "OK" }).Count
+            $groupValid = ($group.Group | Where-Object { $_.Valid }).Count
             $groupPercent = [math]::Round(($groupValid/$group.Count)*100)
             $bar = "█" * [math]::Round($groupPercent/5) + "░" * (20 - [math]::Round($groupPercent/5))
-            Write-ColorOutput "  $($group.Name): $($group.Count) canais [$bar] $groupPercent%" "White"
+            Write-ColorOutput "  $($group.Name): $($group.Count) canais" "White"
+            Write-ColorOutput "     [$bar] $groupPercent% válidos" "Gray"
         }
         if ($groups.Count -gt 10) {
             Write-ColorOutput "  ... e mais $($groups.Count - 10) categorias" "Gray"
         }
     }
     
-    # Top 5 melhores tempos
-    $topFast = $Channels | Where-Object { $_.Status -eq "OK" -and $_.ResponseTime -gt 0 } | Sort-Object ResponseTime | Select-Object -First 5
-    if ($topFast.Count -gt 0) {
-        Write-ColorOutput "`n⚡ Canais mais rápidos:" "Yellow"
-        $i = 1
-        foreach ($ch in $topFast) {
-            $name = if ($ch.Name.Length -gt 30) { $ch.Name.Substring(0, 30) + "..." } else { $ch.Name }
-            Write-ColorOutput "  $i. $name - $($ch.ResponseTime)ms" "White"
-            $i++
-        }
-    }
-    
     Write-ColorOutput "`n═══════════════════════════════════════" "Gray"
 }
 
-# Função para limpar dados
 function Clear-AllData {
     $Script:CurrentChannels = $null
     $Script:TestedChannels = $null
     $Script:CurrentUrl = $null
-    $Script:TempData = @{}
     
-    # Forçar coleta de lixo
     [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
     
     Write-ColorOutput "🧹 Dados limpos com sucesso!" "Green" "✅"
-    Write-ColorOutput "   Memória liberada: ~$([math]::Round((Get-Process -Id $pid).WorkingSet/1MB, 2)) MB" "White"
 }
 
 # ================================================
@@ -350,13 +411,12 @@ function Clear-AllData {
 do {
     Show-Menu
     
-    # Mostrar status atual
     if ($Script:CurrentChannels) {
         $status = if ($Script:TestedChannels) { "✅ Testados" } else { "⏳ Carregados" }
+        $validCount = if ($Script:TestedChannels) { ($Script:TestedChannels | Where-Object { $_.Valid }).Count } else { 0 }
         Write-ColorOutput "📌 Status: $status - $($Script:CurrentChannels.Count) canais" "Cyan"
-        if ($Script:CurrentUrl) {
-            $shortUrl = if ($Script:CurrentUrl.Length -gt 50) { $Script:CurrentUrl.Substring(0, 50) + "..." } else { $Script:CurrentUrl }
-            Write-ColorOutput "🔗 Fonte: $shortUrl" "Gray"
+        if ($Script:TestedChannels) {
+            Write-ColorOutput "   ✅ Válidos: $validCount | ❌ Inválidos: $($Script:CurrentChannels.Count - $validCount)" "White"
         }
     } else {
         Write-ColorOutput "📌 Status: ⚪ Nenhuma lista carregada" "Gray"
@@ -395,14 +455,14 @@ do {
             if (!$Script:CurrentChannels) {
                 Write-ColorOutput "❌ Carregue uma lista primeiro (opção 1)!" "Red" "⚠️"
             } else {
-                # Mostrar categorias disponíveis
                 $groups = $Script:CurrentChannels | Where-Object { $_.Group } | Group-Object Group
                 Write-ColorOutput "📂 CATEGORIAS DISPONÍVEIS" "Yellow"
                 Write-ColorOutput "────────────────────────────────────────" "Gray"
                 $groups | ForEach-Object { 
                     $count = $_.Count
-                    $valid = ($_.Group | Where-Object { $_.Status -eq "OK" }).Count
-                    Write-ColorOutput "  $($_.Name) - $count canais ($valid válidos)" "White"
+                    $valid = ($_.Group | Where-Object { $_.Valid }).Count
+                    $status = if ($valid -gt 0) { "✅ $valid válidos" } else { "⏳ não testados" }
+                    Write-ColorOutput "  $($_.Name) - $count canais ($status)" "White"
                 }
                 Write-ColorOutput ""
                 
@@ -427,9 +487,6 @@ do {
                 
                 $channelsToSave = if ($Script:TestedChannels) { $Script:TestedChannels } else { $Script:CurrentChannels }
                 $link = Generate-ListLink -Channels $channelsToSave -OnlyValid $onlyValid
-                
-                Write-ColorOutput "`n🔗 Link gerado (simulação):" "Cyan"
-                Write-ColorOutput "$link" "White"
             }
             Read-Host "`nPressione Enter para continuar..."
         }
