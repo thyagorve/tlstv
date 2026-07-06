@@ -1,5 +1,5 @@
 # ================================================
-# TLS TV Manager v4.1 - CORRIGIDO
+# TLS TV Manager v4.2 - COM SUPORTE LOCAL
 # Sistema de Gerenciamento de Listas M3U/M3U8
 # ================================================
 
@@ -29,8 +29,8 @@ function Write-ColorOutput {
 function Show-Banner {
     Clear-Host
     Write-ColorOutput "╔══════════════════════════════════════════╗" "Cyan"
-    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.1           ║" "Magenta"
-    Write-ColorOutput "║          Modo Ultra Rápido              ║" "Magenta"
+    Write-ColorOutput "║        ⚡ TLS TV MANAGER v4.2           ║" "Magenta"
+    Write-ColorOutput "║     Suporte URL e Arquivo Local         ║" "Magenta"
     Write-ColorOutput "╚══════════════════════════════════════════╝" "Cyan"
     Write-ColorOutput ""
 }
@@ -39,7 +39,7 @@ function Show-Menu {
     Show-Banner
     Write-ColorOutput "📋 MENU PRINCIPAL" "Yellow"
     Write-ColorOutput "────────────────────────────────────────" "Gray"
-    Write-ColorOutput "1. 📥 Carregar lista (URL)" "White"
+    Write-ColorOutput "1. 📥 Carregar lista (URL ou arquivo)" "White"
     Write-ColorOutput "2. ⚡ Testar links (MODO TURBO)" "White"
     Write-ColorOutput "3. 🔍 Filtrar por categoria" "White"
     Write-ColorOutput "4. 💾 Salvar lista" "White"
@@ -51,47 +51,94 @@ function Show-Menu {
 }
 
 # ================================================
-# FUNÇÃO DE DOWNLOAD MELHORADA
+# FUNÇÃO DE DOWNLOAD MELHORADA COM SUPORTE LOCAL
 # ================================================
 
 function Get-M3UListMemory {
-    param($Url)
+    param($Source)
     
-    Write-ColorOutput "📥 Baixando lista..." "Yellow" "🔄"
-    try {
-        # Configurar WebClient com headers corretos
-        $webClient = New-Object System.Net.WebClient
-        $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
-        $webClient.Headers.Add("Accept", "*/*")
-        $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
-        $webClient.Headers.Add("Connection", "keep-alive")
-        
-        # Baixar conteúdo
-        $content = $webClient.DownloadString($Url)
-        
-        # Verificar se veio algo
-        if ([string]::IsNullOrEmpty($content)) {
-            Write-ColorOutput "❌ Lista vazia!" "Red" "💥"
+    $content = $null
+    $isLocalFile = Test-Path $Source
+    
+    if ($isLocalFile) {
+        Write-ColorOutput "📂 Carregando arquivo local..." "Yellow" "📁"
+        try {
+            $content = Get-Content -Path $Source -Raw -Encoding UTF8
+            Write-ColorOutput "✅ Arquivo carregado! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+            $Script:CurrentUrl = $Source
+            return $content
+        }
+        catch {
+            Write-ColorOutput "❌ Erro ao ler arquivo: $_" "Red" "💥"
             return $null
         }
+    }
+    
+    # Se não for arquivo local, tentar download
+    Write-ColorOutput "📥 Baixando lista da URL..." "Yellow" "🔄"
+    
+    try {
+        # Tentativa 1: WebClient padrão
+        try {
+            $webClient = New-Object System.Net.WebClient
+            $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
+            $webClient.Headers.Add("Accept", "*/*")
+            $webClient.Headers.Add("Accept-Encoding", "gzip, deflate")
+            $webClient.Headers.Add("Connection", "keep-alive")
+            
+            $content = $webClient.DownloadString($Source)
+            Write-ColorOutput "✅ Download concluído! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+            $Script:CurrentUrl = $Source
+            return $content
+        }
+        catch {
+            Write-ColorOutput "   Tentativa 1 falhou, tentando método alternativo..." "Yellow"
+        }
         
-        $Script:CurrentUrl = $Url
-        Write-ColorOutput "✅ Lista baixada! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+        # Tentativa 2: HttpClient
+        try {
+            $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip
+            $client = New-Object System.Net.Http.HttpClient($handler)
+            $client.Timeout = [TimeSpan]::FromSeconds(30)
+            $client.DefaultRequestHeaders.Add("User-Agent", $Script:Config.UserAgent)
+            $client.DefaultRequestHeaders.Add("Accept", "*/*")
+            
+            $response = $client.GetAsync($Source).Result
+            $response.EnsureSuccessStatusCode()
+            $content = $response.Content.ReadAsStringAsync().Result
+            
+            Write-ColorOutput "✅ Download concluído! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+            $Script:CurrentUrl = $Source
+            return $content
+        }
+        catch {
+            Write-ColorOutput "   Tentativa 2 falhou, tentando último método..." "Yellow"
+        }
         
-        # Salvar debug (opcional)
-        # $content | Out-File -FilePath "$env:TEMP\debug.m3u" -Encoding UTF8
-        
-        return $content
+        # Tentativa 3: Invoke-WebRequest
+        try {
+            $response = Invoke-WebRequest -Uri $Source -UserAgent $Script:Config.UserAgent -TimeoutSec 30 -UseBasicParsing
+            $content = $response.Content
+            
+            Write-ColorOutput "✅ Download concluído! Tamanho: $([math]::Round($content.Length/1024, 2)) KB" "Green" "🎯"
+            $Script:CurrentUrl = $Source
+            return $content
+        }
+        catch {
+            Write-ColorOutput "❌ Todas as tentativas falharam!" "Red" "💥"
+            Write-ColorOutput "   Último erro: $_" "Red"
+            return $null
+        }
     }
     catch {
         Write-ColorOutput "❌ Erro ao baixar: $_" "Red" "💥"
-        Write-ColorOutput "   Verifique a URL e sua conexão" "Yellow"
         return $null
     }
 }
 
 # ================================================
-# FUNÇÃO DE PARSING CORRIGIDA PARA M3U8
+# FUNÇÃO DE PARSING CORRIGIDA
 # ================================================
 
 function Parse-M3UQuick {
@@ -99,24 +146,33 @@ function Parse-M3UQuick {
     
     Write-ColorOutput "🔄 Processando lista..." "Yellow" "⚙️"
     
+    if ([string]::IsNullOrEmpty($Content)) {
+        Write-ColorOutput "❌ Conteúdo vazio!" "Red" "💥"
+        return @()
+    }
+    
     $channels = @()
-    
-    # Tentar diferentes formas de split
     $lines = $Content -split "`r`n|`n|`r"
-    
-    # Remover linhas vazias
     $lines = $lines | Where-Object { $_.Trim() -ne "" }
     
     Write-ColorOutput "   Linhas encontradas: $($lines.Count)" "Gray"
     
+    # Verificar se é uma lista M3U válida
+    $hasExtM3U = $lines | Where-Object { $_ -match "#EXTM3U" }
+    if ($hasExtM3U) {
+        Write-ColorOutput "   ✅ Formato M3U detectado" "Green"
+    } else {
+        Write-ColorOutput "   ⚠️ Pode não ser uma lista M3U padrão" "Yellow"
+    }
+    
     $i = 0
     $total = $lines.Count
     $count = 0
+    $errors = 0
     
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
         
-        # Verificar se é uma linha de informação
         if ($line.StartsWith("#EXTINF:")) {
             $channel = @{
                 Info = $line
@@ -129,9 +185,10 @@ function Parse-M3UQuick {
                 Valid = $false
                 TvgId = ""
                 TvgName = ""
+                TvgLogo = ""
             }
             
-            # Extrair nome (último após vírgula)
+            # Extrair nome
             if ($line -match ',([^,]+)$') {
                 $channel.Name = $matches[1].Trim()
                 if ([string]::IsNullOrEmpty($channel.Name)) {
@@ -147,6 +204,7 @@ function Parse-M3UQuick {
             # Extrair logo
             if ($line -match 'tvg-logo="([^"]+)"') { 
                 $channel.Logo = $matches[1].Trim()
+                $channel.TvgLogo = $matches[1].Trim()
             }
             
             # Extrair tvg-id
@@ -157,48 +215,40 @@ function Parse-M3UQuick {
             # Extrair tvg-name
             if ($line -match 'tvg-name="([^"]+)"') { 
                 $channel.TvgName = $matches[1].Trim()
+                if ($channel.Name -eq "Desconhecido") {
+                    $channel.Name = $matches[1].Trim()
+                }
             }
             
-            # Buscar URL (próximas linhas até encontrar uma que não comece com #)
+            # Buscar URL
             $i++
             $urlFound = $false
             while ($i -lt $total -and !$urlFound) {
                 $nextLine = $lines[$i].Trim()
                 
-                # Se começar com #, é outra tag, pular
                 if ($nextLine.StartsWith("#")) {
                     $i++
                     continue
                 }
                 
-                # Se não começar com #, é a URL
                 if ($nextLine -match '^https?://' -or $nextLine -match '^rtmp://' -or $nextLine -match '^http://') {
                     $channel.Url = $nextLine
                     $urlFound = $true
                     $count++
+                } elseif ($nextLine -match '^[a-zA-Z0-9]') {
+                    # Pode ser um caminho relativo
+                    $channel.Url = $nextLine
+                    $urlFound = $true
+                    $count++
                 } else {
-                    # Pode ser um link relativo ou algo diferente
-                    $channel.Url = $nextLine
-                    $urlFound = $true
-                    $count++
-                }
-                $i++
-            }
-            
-            # Se não encontrou URL, tentar a próxima linha que não seja #EXT
-            if (!$urlFound) {
-                $nextLine = $lines[$i].Trim()
-                if ($nextLine -and !$nextLine.StartsWith("#")) {
-                    $channel.Url = $nextLine
-                    $urlFound = $true
-                    $count++
                     $i++
                 }
             }
             
-            # Adicionar canal se tiver URL
             if ($channel.Url) {
                 $channels += $channel
+            } else {
+                $errors++
             }
             
         } else {
@@ -207,21 +257,28 @@ function Parse-M3UQuick {
     }
     
     Write-ColorOutput "✅ Processados $($channels.Count) canais" "Green" "📊"
+    if ($errors -gt 0) {
+        Write-ColorOutput "   ⚠️ $errors canais ignorados (sem URL)" "Yellow"
+    }
     
     if ($channels.Count -eq 0) {
-        Write-ColorOutput "⚠️ Nenhum canal encontrado! Verifique o formato da lista." "Yellow" "⚠️"
+        Write-ColorOutput "`n⚠️ Nenhum canal encontrado!" "Yellow" "⚠️"
         Write-ColorOutput "   As primeiras linhas do arquivo:" "Gray"
         $firstLines = $lines | Select-Object -First 10
+        $i = 1
         foreach ($line in $firstLines) {
-            Write-ColorOutput "   $($line.Substring(0, [math]::Min(50, $line.Length)))..." "Gray"
+            $display = if ($line.Length -gt 80) { $line.Substring(0, 80) + "..." } else { $line }
+            Write-ColorOutput "   $i. $display" "Gray"
+            $i++
         }
+        Write-ColorOutput "`n   💡 Dica: Verifique se a URL está correta" "Yellow"
     }
     
     return $channels
 }
 
 # ================================================
-# TESTE ULTRA RÁPIDO - OTIMIZADO
+# TESTE ULTRA RÁPIDO (MANTIDO)
 # ================================================
 
 function Test-UrlsTurbo {
@@ -310,7 +367,6 @@ function Test-UrlsTurbo {
         $jobs += $job
     }
     
-    # Processar resultados
     $allResults = @()
     
     function Update-ProgressBar {
@@ -347,8 +403,6 @@ function Test-UrlsTurbo {
         Write-Host "`r" -NoNewline
         Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     }
-    
-    $jobIndex = 0
     
     while ($jobs.Count -gt 0) {
         $job = $jobs[0]
@@ -387,7 +441,7 @@ function Test-UrlsTurbo {
 }
 
 # ================================================
-# DEMAIS FUNÇÕES
+# DEMAIS FUNÇÕES (MANTIDAS)
 # ================================================
 
 function Filter-Categories {
@@ -457,7 +511,6 @@ function Show-DetailedStats {
     Write-ColorOutput "  ✅ Válidos: $valid ($([math]::Round(($valid/$total)*100, 1))%)" "Green"
     Write-ColorOutput "  ❌ Inválidos: $invalid ($([math]::Round(($invalid/$total)*100, 1))%)" "Red"
     
-    # Top 10 mais rápidos
     $topFast = $Channels | Where-Object { $_.Valid -and $_.ResponseTime -gt 0 } | Sort-Object ResponseTime | Select-Object -First 10
     if ($topFast.Count -gt 0) {
         Write-ColorOutput "`n⚡ TOP 10 MAIS RÁPIDOS:" "Yellow"
@@ -472,7 +525,6 @@ function Show-DetailedStats {
         }
     }
     
-    # Grupos
     $groups = $Channels | Where-Object { $_.Group } | Group-Object Group | Sort-Object Count -Descending
     if ($groups.Count -gt 0) {
         Write-ColorOutput "`n📂 CATEGORIAS:" "Yellow"
@@ -517,6 +569,10 @@ do {
         if ($Script:TestedChannels) {
             Write-ColorOutput "   ✅ Válidos: $validCount | ❌ Inválidos: $($Script:CurrentChannels.Count - $validCount)" "White"
         }
+        if ($Script:CurrentUrl) {
+            $shortUrl = if ($Script:CurrentUrl.Length -gt 60) { $Script:CurrentUrl.Substring(0, 60) + "..." } else { $Script:CurrentUrl }
+            Write-ColorOutput "   📁 Fonte: $shortUrl" "Gray"
+        }
     } else {
         Write-ColorOutput "📌 Status: ⚪ Nenhuma lista carregada" "Gray"
     }
@@ -526,20 +582,25 @@ do {
     
     switch ($option) {
         "1" {
-            Write-ColorOutput "📥 INSERIR URL DA LISTA" "Yellow"
+            Write-ColorOutput "📥 CARREGAR LISTA" "Yellow"
             Write-ColorOutput "────────────────────────────────────────" "Gray"
-            Write-ColorOutput "   Exemplo: http://auth.urltech.gy/get.php?username=..." "Gray"
-            $url = Read-Host "`nURL da lista"
+            Write-ColorOutput "   Digite uma URL ou caminho de arquivo local" "Gray"
+            Write-ColorOutput "   Exemplo URL: http://auth.urltech.gy/get.php?username=..." "Gray"
+            Write-ColorOutput "   Exemplo local: C:\Users\usuario\Desktop\lista.m3u" "Gray"
+            Write-ColorOutput "   Exemplo local: .\lista.m3u" "Gray"
+            Write-ColorOutput ""
             
-            if ($url) {
-                $content = Get-M3UListMemory -Url $url
+            $source = Read-Host "URL ou caminho"
+            
+            if ($source) {
+                $content = Get-M3UListMemory -Source $source
                 if ($content) {
                     $Script:CurrentChannels = Parse-M3UQuick -Content $content
                     $Script:TestedChannels = $null
                     if ($Script:CurrentChannels.Count -gt 0) {
-                        Write-ColorOutput "✅ Lista pronta para uso!" "Green" "🎉"
+                        Write-ColorOutput "`n✅ Lista pronta para uso!" "Green" "🎉"
                     } else {
-                        Write-ColorOutput "⚠️ Nenhum canal encontrado. Tente outra URL." "Yellow" "⚠️"
+                        Write-ColorOutput "`n⚠️ Nenhum canal encontrado. Verifique o arquivo/URL." "Yellow" "⚠️"
                     }
                 }
             }
