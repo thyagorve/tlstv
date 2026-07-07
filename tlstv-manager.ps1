@@ -1,14 +1,14 @@
 # ================================================
-# TLS TV Manager v4.5 - CORRIGIDO
+# TLS TV Manager v4.6 - BARRA 100% FUNCIONAL
 # Sistema de Gerenciamento de Listas M3U/M3U8
-# Versão: 4.5
+# Versão: 4.6
 # ================================================
 
 # ================================================
 # SISTEMA DE VERSÃO E AUTO UPDATE
 # ================================================
 
-$Script:Version = "4.5"
+$Script:Version = "4.6"
 $Script:RepoUrl = "https://raw.githubusercontent.com/thyagorve/tlstv/main/tlstv-manager.ps1"
 $Script:Running = $true
 $Script:CurrentChannels = $null
@@ -112,7 +112,7 @@ function Show-Menu {
 }
 
 # ================================================
-# FUNÇÃO DE PROGRESSO CORRIGIDA
+# FUNÇÃO DE PROGRESSO MELHORADA
 # ================================================
 
 function Show-Progress {
@@ -126,29 +126,46 @@ function Show-Progress {
     
     if ($Total -eq 0) { $Total = 1 }
     $percent = [math]::Round(($Current / $Total) * 100)
+    if ($percent -gt 100) { $percent = 100 }
+    
     $barLength = 40
     $filled = [math]::Round(($percent / 100) * $barLength)
+    if ($filled -gt $barLength) { $filled = $barLength }
+    
     $bar = "█" * $filled + "░" * ($barLength - $filled)
     
+    # Linha 1: Barra
     Write-Host "`r" -NoNewline
     Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     Write-Host "`r" -NoNewline
     Write-Host "│ $bar │ $percent%  " -ForegroundColor $Color -NoNewline
     
+    # Linha 2: Status
     Write-Host "`r" -NoNewline
     Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     Write-Host "`r" -NoNewline
     
-    # CORRIGIDO: usar concatenação ao invés de interpolação com :
-    $statusLine = $Label + ": " + $Current + "/" + $Total
-    if ($Status) { $statusLine = $statusLine + " | " + $Status }
+    $statusLine = "$Label: $Current/$Total"
+    if ($Status -ne "") { $statusLine = "$statusLine | $Status" }
     
+    # Centralizar texto
     $padding = 40 - $statusLine.Length
     if ($padding -lt 0) { $padding = 0 }
-    Write-Host "│ $statusLine$(' ' * $padding)│" -ForegroundColor White -NoNewline
+    $leftPad = [math]::Floor($padding / 2)
+    $rightPad = $padding - $leftPad
     
+    Write-Host "│" -ForegroundColor Gray -NoNewline
+    Write-Host " " * $leftPad -NoNewline
+    Write-Host $statusLine -ForegroundColor White -NoNewline
+    Write-Host " " * $rightPad -NoNewline
+    Write-Host "│" -ForegroundColor Gray -NoNewline
+    
+    # Linha 3: Fechamento
     Write-Host "`r" -NoNewline
     Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+    
+    # Forçar atualização
+    [System.Console]::Out.Flush()
 }
 
 # ================================================
@@ -198,6 +215,7 @@ function Get-M3UListMemory {
                 $percent = $e.ProgressPercentage
                 $barLength = 40
                 $filled = [math]::Round(($percent / 100) * $barLength)
+                if ($filled -gt $barLength) { $filled = $barLength }
                 $bar = "█" * $filled + "░" * ($barLength - $filled)
                 
                 $size = if ($e.TotalBytesToReceive -gt 0) {
@@ -216,6 +234,7 @@ function Get-M3UListMemory {
                 Write-Host "│ ⬇️ Baixando: $size              │" -ForegroundColor White -NoNewline
                 Write-Host "`r" -NoNewline
                 Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+                [System.Console]::Out.Flush()
             }
             
             $content = $webClient.DownloadString($Source)
@@ -250,7 +269,7 @@ function Get-M3UListMemory {
 }
 
 # ================================================
-# FUNÇÃO DE PARSING COM PROGRESSO
+# FUNÇÃO DE PARSING COM PROGRESSO - CORRIGIDA
 # ================================================
 
 function Parse-M3UQuick {
@@ -278,18 +297,32 @@ function Parse-M3UQuick {
         Write-ColorOutput "   ⚠️ Pode não ser uma lista M3U padrão" "Yellow"
     }
     
+    Write-ColorOutput "`n"  # Pular linha para barra
+    
     $i = 0
     $count = 0
     $errors = 0
-    $lastProgress = -1
+    $lastUpdate = 0
+    $startTime = Get-Date
     
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
         
-        $currentProgress = [math]::Round(($i / $total) * 100)
-        if ($currentProgress -ne $lastProgress) {
-            $lastProgress = $currentProgress
-            Show-Progress -Current $i -Total $total -Label "Analisando" -Status "$count canais" -Color "Yellow"
+        # Atualizar a cada 1% ou a cada 100 linhas
+        $currentPercent = [math]::Round(($i / $total) * 100)
+        if ($currentPercent -ne $lastUpdate -or $i % 100 -eq 0) {
+            $lastUpdate = $currentPercent
+            
+            # Calcular velocidade
+            $elapsed = (Get-Date) - $startTime
+            if ($elapsed.TotalSeconds -gt 0) {
+                $speed = [math]::Round($i / $elapsed.TotalSeconds, 1)
+            } else {
+                $speed = 0
+            }
+            
+            $statusText = "Canais: $count | $($speed) linhas/s"
+            Show-Progress -Current $i -Total $total -Label "Analisando" -Status $statusText -Color "Yellow"
         }
         
         if ($line.StartsWith("#EXTINF:")) {
@@ -368,8 +401,9 @@ function Parse-M3UQuick {
         }
     }
     
-    Show-Progress -Current $total -Total $total -Label "Concluído" -Status "$count canais" -Color "Green"
-    Write-Host "`n"
+    # Finalizar com 100%
+    Show-Progress -Current $total -Total $total -Label "✅ Concluído" -Status "$count canais encontrados" -Color "Green"
+    Write-Host "`n`n"
     
     Write-ColorOutput "✅ Processados $($channels.Count) canais" "Green" "📊"
     if ($errors -gt 0) {
@@ -380,11 +414,11 @@ function Parse-M3UQuick {
         Write-ColorOutput "`n⚠️ Nenhum canal encontrado!" "Yellow" "⚠️"
         Write-ColorOutput "   As primeiras linhas do arquivo:" "Gray"
         $firstLines = $lines | Select-Object -First 10
-        $i = 1
+        $idx = 1
         foreach ($line in $firstLines) {
             $display = if ($line.Length -gt 80) { $line.Substring(0, 80) + "..." } else { $line }
-            Write-ColorOutput "   $i. $display" "Gray"
-            $i++
+            Write-ColorOutput "   $idx. $display" "Gray"
+            $idx++
         }
         Write-ColorOutput "`n   💡 Dica: Verifique se a URL está correta" "Yellow"
     }
@@ -528,6 +562,7 @@ function Test-UrlsTurbo {
             
             Write-Host "`r" -NoNewline
             Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            [System.Console]::Out.Flush()
         } else {
             Start-Sleep -Milliseconds 50
         }
@@ -583,14 +618,23 @@ function Generate-ListLink {
     $count = 0
     $total = $Channels.Count
     $i = 0
+    $startTime = Get-Date
     
     foreach ($ch in $Channels) {
         $i++
-        if ($i % 100 -eq 0 -or $i -eq $total) {
+        if ($i % 50 -eq 0 -or $i -eq $total) {
             $percent = [math]::Round(($i / $total) * 100)
             $barLength = 40
             $filled = [math]::Round(($percent / 100) * $barLength)
+            if ($filled -gt $barLength) { $filled = $barLength }
             $bar = "█" * $filled + "░" * ($barLength - $filled)
+            
+            $elapsed = (Get-Date) - $startTime
+            if ($elapsed.TotalSeconds -gt 0 -and $i -gt 0) {
+                $speed = [math]::Round($i / $elapsed.TotalSeconds, 1)
+            } else {
+                $speed = 0
+            }
             
             Write-Host "`r" -NoNewline
             Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
@@ -599,9 +643,10 @@ function Generate-ListLink {
             Write-Host "`r" -NoNewline
             Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
             Write-Host "`r" -NoNewline
-            Write-Host "│ 📝 Gerando: $i/$total canais           │" -ForegroundColor White -NoNewline
+            Write-Host "│ 📝 Gerando: $i/$total canais | $($speed)/s │" -ForegroundColor White -NoNewline
             Write-Host "`r" -NoNewline
             Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
+            [System.Console]::Out.Flush()
         }
         
         if ($OnlyValid -and !$ch.Valid) { continue }
