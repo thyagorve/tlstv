@@ -1,14 +1,14 @@
 # ================================================
-# TLS TV Manager v4.4 - AUTO UPDATE
+# TLS TV Manager v4.5 - CORRIGIDO
 # Sistema de Gerenciamento de Listas M3U/M3U8
-# Versão: 4.4
+# Versão: 4.5
 # ================================================
 
 # ================================================
 # SISTEMA DE VERSÃO E AUTO UPDATE
 # ================================================
 
-$Script:Version = "4.4"
+$Script:Version = "4.5"
 $Script:RepoUrl = "https://raw.githubusercontent.com/thyagorve/tlstv/main/tlstv-manager.ps1"
 $Script:Running = $true
 $Script:CurrentChannels = $null
@@ -32,12 +32,10 @@ function Check-ForUpdates {
     Write-ColorOutput "────────────────────────────────────────" "Gray"
     
     try {
-        # Baixar versão atual do repositório
         $webClient = New-Object System.Net.WebClient
         $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
         $remoteContent = $webClient.DownloadString($Script:RepoUrl)
         
-        # Procurar versão no conteúdo remoto
         if ($remoteContent -match '\$Script:Version\s*=\s*"([^"]+)"') {
             $remoteVersion = $matches[1]
             
@@ -52,17 +50,13 @@ function Check-ForUpdates {
                 if ($update -eq "S") {
                     Write-ColorOutput "⬇️ Baixando atualização..." "Yellow" "📥"
                     
-                    # Salvar script atualizado
                     $tempFile = [System.IO.Path]::GetTempFileName() + ".ps1"
                     $remoteContent | Out-File -FilePath $tempFile -Encoding UTF8
                     
                     Write-ColorOutput "✅ Download concluído!" "Green" "🎯"
                     Write-ColorOutput "🔄 Reiniciando com nova versão..." "Yellow" "🚀"
                     
-                    # Limpar variáveis atuais
                     Clear-AllData
-                    
-                    # Executar novo script e sair do atual
                     & $tempFile
                     exit
                 } else {
@@ -118,7 +112,7 @@ function Show-Menu {
 }
 
 # ================================================
-# FUNÇÃO DE PROGRESSO
+# FUNÇÃO DE PROGRESSO CORRIGIDA
 # ================================================
 
 function Show-Progress {
@@ -145,8 +139,10 @@ function Show-Progress {
     Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     Write-Host "`r" -NoNewline
     
-    $statusLine = "$Label: $Current/$Total"
-    if ($Status) { $statusLine += " | $Status" }
+    # CORRIGIDO: usar concatenação ao invés de interpolação com :
+    $statusLine = $Label + ": " + $Current + "/" + $Total
+    if ($Status) { $statusLine = $statusLine + " | " + $Status }
+    
     $padding = 40 - $statusLine.Length
     if ($padding -lt 0) { $padding = 0 }
     Write-Host "│ $statusLine$(' ' * $padding)│" -ForegroundColor White -NoNewline
@@ -190,7 +186,6 @@ function Get-M3UListMemory {
     Write-ColorOutput "────────────────────────────────────────" "Gray"
     
     try {
-        # Tentativa 1: WebClient com progresso
         try {
             $webClient = New-Object System.Net.WebClient
             $webClient.Headers.Add("User-Agent", $Script:Config.UserAgent)
@@ -233,7 +228,6 @@ function Get-M3UListMemory {
             Write-ColorOutput "   Tentativa 1 falhou..." "Yellow"
         }
         
-        # Tentativa 2: Invoke-WebRequest
         try {
             Write-ColorOutput "   Usando método alternativo..." "Yellow"
             $response = Invoke-WebRequest -Uri $Source -UserAgent $Script:Config.UserAgent -TimeoutSec 30 -UseBasicParsing
@@ -700,7 +694,6 @@ function Exit-Script {
     Write-ColorOutput "👋 Saindo..." "Yellow" "🚪"
     Clear-AllData
     $Script:Running = $false
-    # Sair com força total
     [System.Environment]::Exit(0)
 }
 
@@ -862,5 +855,4 @@ while ($Script:Running) {
     }
 }
 
-# Garantir saída
 Write-ColorOutput "👋 Programa finalizado!" "Green" "✅"
