@@ -1,14 +1,14 @@
 # ================================================
-# TLS TV Manager v4.6 - BARRA 100% FUNCIONAL
+# TLS TV Manager v4.7 - CORRIGIDO
 # Sistema de Gerenciamento de Listas M3U/M3U8
-# Versão: 4.6
+# Versão: 4.7
 # ================================================
 
 # ================================================
 # SISTEMA DE VERSÃO E AUTO UPDATE
 # ================================================
 
-$Script:Version = "4.6"
+$Script:Version = "4.7"
 $Script:RepoUrl = "https://raw.githubusercontent.com/thyagorve/tlstv/main/tlstv-manager.ps1"
 $Script:Running = $true
 $Script:CurrentChannels = $null
@@ -112,7 +112,7 @@ function Show-Menu {
 }
 
 # ================================================
-# FUNÇÃO DE PROGRESSO MELHORADA
+# FUNÇÃO DE PROGRESSO CORRIGIDA
 # ================================================
 
 function Show-Progress {
@@ -140,7 +140,7 @@ function Show-Progress {
     Write-Host "`r" -NoNewline
     Write-Host "│ $bar │ $percent%  " -ForegroundColor $Color -NoNewline
     
-    # Linha 2: Status
+    # Linha 2: Status - CORRIGIDO (concatenação ao invés de interpolação com :)
     Write-Host "`r" -NoNewline
     Write-Host "├────────────────────────────────────────┤" -ForegroundColor Gray -NoNewline
     Write-Host "`r" -NoNewline
@@ -269,7 +269,7 @@ function Get-M3UListMemory {
 }
 
 # ================================================
-# FUNÇÃO DE PARSING COM PROGRESSO - CORRIGIDA
+# FUNÇÃO DE PARSING COM PROGRESSO
 # ================================================
 
 function Parse-M3UQuick {
@@ -297,7 +297,7 @@ function Parse-M3UQuick {
         Write-ColorOutput "   ⚠️ Pode não ser uma lista M3U padrão" "Yellow"
     }
     
-    Write-ColorOutput "`n"  # Pular linha para barra
+    Write-ColorOutput "`n"
     
     $i = 0
     $count = 0
@@ -308,12 +308,10 @@ function Parse-M3UQuick {
     while ($i -lt $total) {
         $line = $lines[$i].Trim()
         
-        # Atualizar a cada 1% ou a cada 100 linhas
         $currentPercent = [math]::Round(($i / $total) * 100)
         if ($currentPercent -ne $lastUpdate -or $i % 100 -eq 0) {
             $lastUpdate = $currentPercent
             
-            # Calcular velocidade
             $elapsed = (Get-Date) - $startTime
             if ($elapsed.TotalSeconds -gt 0) {
                 $speed = [math]::Round($i / $elapsed.TotalSeconds, 1)
@@ -401,7 +399,6 @@ function Parse-M3UQuick {
         }
     }
     
-    # Finalizar com 100%
     Show-Progress -Current $total -Total $total -Label "✅ Concluído" -Status "$count canais encontrados" -Color "Green"
     Write-Host "`n`n"
     
